@@ -1,1 +1,1 @@
-ALTER TABLE analysis_status_list ADD VALUE 'FAILED';
+ALTER TYPE analysis_status_list ADD VALUE 'FAILED';
