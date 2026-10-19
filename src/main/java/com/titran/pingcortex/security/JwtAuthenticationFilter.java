@@ -20,6 +20,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public static final String USER_ID_ATTRIBUTE = "authenticatedUserId";
 
     private static final List<String> PUBLIC_PATHS = List.of(
+            "/health",
             "/auth/register",
             "/auth/login",
             "/auth/refresh"
