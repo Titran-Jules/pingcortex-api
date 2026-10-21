@@ -14,10 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.util.List;
@@ -62,15 +59,47 @@ public class AuthController {
     }
 
     @PostMapping("/auth/refresh")
-    public ResponseEntity<LoginResult> refreshToken(@RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(authService.refresh(request.refreshToken()));
+    public ResponseEntity<LoginResponse> refreshToken(
+            @RequestBody RefreshRequest refreshRequest,
+            @CookieValue(name = "rt", required = false) String cookieRefreshToken,
+            @RequestHeader(value = "X-Client-Type",  required = false) String clientType,
+            HttpServletRequest request
+    ) {
+        validateOriginHeader(request);
+        boolean isMobile = "mobile".equalsIgnoreCase(clientType);
+        String rawToken = isMobile && refreshRequest != null ? refreshRequest.refreshToken() : cookieRefreshToken;
+
+        if (rawToken == null || rawToken.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        LoginResult outcome = authService.refresh(rawToken);
+        ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.ok();
+        if (!isMobile) {
+            ResponseCookie cookie = createRefreshTokenCookie(outcome.rawRefreshToken(), Duration.ofDays(7));
+            responseBuilder.header(HttpHeaders.SET_COOKIE, cookie.toString());
+        }
+        String refreshTokenForBody = isMobile ? outcome.rawRefreshToken() : null;
+        return responseBuilder.body(new LoginResponse(outcome.accessToken(), refreshTokenForBody, outcome.user()));
     }
 
     @PostMapping("/auth/logout")
-    public ResponseEntity<Void> logoutUser(@RequestBody RefreshRequest refreshRequest, HttpServletRequest request) {
+    public ResponseEntity<Void> logoutUser(
+            @CookieValue(name = "rt", required = false) String cookieRefreshToken,
+            @RequestBody RefreshRequest refreshRequest,
+            @RequestHeader(value = "X-Client-Type", required = false) String clientType,
+            HttpServletRequest request
+    ) {
+        validateOriginHeader(request);
         UUID userId = CurrentUser.id(request);
-        authService.logout(userId, refreshRequest.refreshToken());
-        return ResponseEntity.noContent().build();
+        boolean isMobile = "mobile".equalsIgnoreCase(clientType);
+        String rawToken = isMobile && refreshRequest != null ? refreshRequest.refreshToken() : cookieRefreshToken;
+        if (rawToken != null && !rawToken.isBlank()) {
+            authService.logout(userId, rawToken);
+        }
+        ResponseCookie deleteCookie = createRefreshTokenCookie("", Duration.ZERO);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, deleteCookie.toString())
+                .build();
     }
 
     private void validateOriginHeader(HttpServletRequest request) {
