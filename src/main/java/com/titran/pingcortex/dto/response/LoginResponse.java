@@ -1,4 +1,6 @@
 package com.titran.pingcortex.dto.response;
 
-public record LoginResponse(String accessToken, String refreshToken, JwtPayload jwtPayload) {
+import com.titran.pingcortex.model.User;
+
+public record LoginResponse(String accessToken, String refreshToken, UserResponse user) {
 }

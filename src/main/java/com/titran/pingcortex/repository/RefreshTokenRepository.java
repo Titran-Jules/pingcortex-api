@@ -3,6 +3,7 @@ package com.titran.pingcortex.repository;
 import com.titran.pingcortex.dto.request.RefreshToken;
 import com.titran.pingcortex.exception.DataAccessException;
 import com.titran.pingcortex.util.ManagedConnection;
+import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
@@ -13,6 +14,7 @@ import java.sql.Timestamp;
 import java.util.Optional;
 import java.util.UUID;
 
+@AllArgsConstructor
 @Repository
 public class RefreshTokenRepository {
     private DataSource dataSource;

@@ -43,7 +43,7 @@ public class AuthService {
         }
         String accessToken = jwtService.generateAccessToken(user);
         String refreshToken = refreshTokenService.issue(user.id());
-        return new LoginResult(accessToken, refreshToken);
+        return new LoginResult(accessToken, refreshToken, new UserResponse(user.id(),  user.email(), user.name(), user.level(), user.alertThreshold(), user.createdAt()));
     }
 
     public LoginResult refresh(String rawRefreshToken) {
@@ -51,7 +51,7 @@ public class AuthService {
         User user = userRepository.findByIdWithCredentials(rotation.userId()).
                 orElseThrow(UserNotFoundException::new);
         String newAccessToken = jwtService.generateAccessToken(user);
-        return new LoginResult(newAccessToken, rotation.newRawToken());
+        return new LoginResult(newAccessToken, rotation.newRawToken(), new UserResponse(user.id(),  user.email(), user.name(), user.level(), user.alertThreshold(), user.createdAt()));
     }
 
     public void logout(UUID authenticatedUserId, String rawRefreshToken) {
