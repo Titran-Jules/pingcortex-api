@@ -60,7 +60,7 @@ public class AuthController {
 
     @PostMapping("/auth/refresh")
     public ResponseEntity<LoginResponse> refreshToken(
-            @RequestBody RefreshRequest refreshRequest,
+            @RequestBody(required = false) RefreshRequest refreshRequest,
             @CookieValue(name = "rt", required = false) String cookieRefreshToken,
             @RequestHeader(value = "X-Client-Type",  required = false) String clientType,
             HttpServletRequest request
@@ -85,7 +85,7 @@ public class AuthController {
     @PostMapping("/auth/logout")
     public ResponseEntity<Void> logoutUser(
             @CookieValue(name = "rt", required = false) String cookieRefreshToken,
-            @RequestBody RefreshRequest refreshRequest,
+            @RequestBody(required = false) RefreshRequest refreshRequest,
             @RequestHeader(value = "X-Client-Type", required = false) String clientType,
             HttpServletRequest request
     ) {
