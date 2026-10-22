@@ -14,7 +14,7 @@ import com.titran.pingcortex.security.PasswordService;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.UUID;
+import java.util.Locale;
 
 @Service
 @AllArgsConstructor
@@ -24,20 +24,28 @@ public class AuthService {
     private final PasswordService passwordService;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private static final String DUMMY_BCRYPT_HASH = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
+    private static String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
 
     public UserResponse register(RegisterRequest request) {
         String passwordHash = passwordService.hash(request.password());
         return authRepository.register(
-                request.email(),
-                request.name(),
+                normalizeEmail(request.email()),
+                request.name().trim(),
                 passwordHash,
                 request.level()
         );
     }
 
     public LoginResult login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.email()).
-                orElseThrow(UserNotFoundException::new);
+        User user = userRepository.findByEmail(normalizeEmail(request.email())).orElse(null);
+        if (user == null) {
+            passwordService.matches(request.password(), DUMMY_BCRYPT_HASH);
+            throw new InvalidCredentialsException();
+        }
         if (!passwordService.matches(request.password(), user.passwordHash())) {
             throw new InvalidCredentialsException();
         }
@@ -54,7 +62,7 @@ public class AuthService {
         return new LoginResult(newAccessToken, rotation.newRawToken(), new UserResponse(user.id(),  user.email(), user.name(), user.level(), user.alertThreshold(), user.createdAt()));
     }
 
-    public void logout(UUID authenticatedUserId, String rawRefreshToken) {
-        refreshTokenService.revoke(authenticatedUserId, rawRefreshToken);
+    public void logout(String rawRefreshToken) {
+        refreshTokenService.revoke(rawRefreshToken);
     }
 }

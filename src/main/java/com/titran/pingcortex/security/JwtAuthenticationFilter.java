@@ -23,7 +23,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             "/health",
             "/auth/register",
             "/auth/login",
-            "/auth/refresh"
+            "/auth/refresh",
+            "/auth/logout"
     );
 
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
