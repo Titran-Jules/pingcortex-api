@@ -13,6 +13,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -21,6 +22,7 @@ public class RefreshTokenService {
     private final Duration refreshTokenValidity;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int TOKEN_BYTE_LENGTH = 32;
+    private static final Duration ROTATION_GRACE_PERIOD = Duration.ofSeconds(30);
 
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
@@ -54,6 +56,8 @@ public class RefreshTokenService {
                 hash(rawToken),
                 Instant.now().plus(refreshTokenValidity),
                 false,
+                null,
+                UUID.randomUUID(),
                 Instant.now()
         );
         refreshTokenRepository.save(refreshToken);
@@ -61,25 +65,40 @@ public class RefreshTokenService {
     }
 
     public RotationResult validateAndRotate(String rawToken) {
-        RefreshToken existing = refreshTokenRepository.findByTokenHash(hash(rawToken))
+        String tokenHash = hash(rawToken);
+        RefreshToken existing = refreshTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(InvalidRefreshTokenException::new);
-        if (existing.revoked() || existing.expiresAt().isBefore(Instant.now())) {
-            throw new InvalidRefreshTokenException();
-        }
-        refreshTokenRepository.revoke(existing.id());
-        String newRawToken = issue(existing.userId());
-        return new RotationResult(existing.userId(), newRawToken);
-    }
 
-    public void revoke(UUID expectedUserId, String rawToken) {
-        refreshTokenRepository.findByTokenHash(hash(rawToken)).ifPresent(token -> {
-            if (!token.userId().equals(expectedUserId)) {
+        if (existing.revoked()) {
+            boolean rotatedRecently = existing.revokedAt() != null
+                    && existing.revokedAt().isAfter(Instant.now().minus(ROTATION_GRACE_PERIOD));
+            if (rotatedRecently) {
                 throw new InvalidRefreshTokenException();
             }
-            refreshTokenRepository.revoke(token.id());
-        });
+            refreshTokenRepository.revokeFamily(existing.familyId());
+            throw new InvalidRefreshTokenException();
+        }
+
+        if (existing.expiresAt().isBefore(Instant.now())) {
+            throw new InvalidRefreshTokenException();
+        }
+
+        String newRawToken = generateRawToken();
+        Instant newExpiresAt = Instant.now().plus(refreshTokenValidity);
+        Optional<UUID> rotatedUserId =
+                refreshTokenRepository.rotate(tokenHash, hash(newRawToken), newExpiresAt);
+        if (rotatedUserId.isEmpty()) {
+            throw new InvalidRefreshTokenException();
+        }
+        return new RotationResult(rotatedUserId.get(), newRawToken);
     }
 
+    public void revoke(String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) {
+            return;
+        }
+        refreshTokenRepository.revokeByTokenHash(hash(rawToken));
+    }
 
     public record RotationResult(UUID userId, String newRawToken) {}
 }

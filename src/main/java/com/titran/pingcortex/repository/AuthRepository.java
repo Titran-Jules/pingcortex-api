@@ -2,6 +2,7 @@ package com.titran.pingcortex.repository;
 
 import com.titran.pingcortex.dto.response.UserResponse;
 import com.titran.pingcortex.exception.DataAccessException;
+import com.titran.pingcortex.exception.EmailAlreadyExistsException;
 import com.titran.pingcortex.util.ManagedConnection;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -10,6 +11,7 @@ import javax.sql.DataSource;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Repository
@@ -42,11 +44,14 @@ public class AuthRepository {
                             rs.getString("name"),
                             rs.getString("level"),
                             rs.getObject("alert_threshold", Integer.class),
-                            rs.getTimestamp("created_at").toInstant()
+                            rs.getObject("created_at", OffsetDateTime.class).toInstant()
                     );
                 }
             }
         } catch (SQLException e) {
+            if ("23505".equals(e.getSQLState())) {
+                throw new EmailAlreadyExistsException();
+            }
             throw new DataAccessException("User registration failed", e);
         }
         return userResponse;
