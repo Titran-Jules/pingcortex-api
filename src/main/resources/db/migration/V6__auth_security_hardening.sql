@@ -1,4 +1,3 @@
--- 1) Timestamps : passons de TIMESTAMP (naive) à TIMESTAMPTZ (instant absolu)
 ALTER TABLE "user"
     ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
 
@@ -39,7 +38,6 @@ ALTER TABLE review_schedule
 ALTER TABLE ai_usage_log
     ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
 
--- 2) Refresh tokens : suivi de famille (détection de réutilisation / vol)
 UPDATE refresh_token SET family_id = id WHERE family_id IS NULL;
 
 ALTER TABLE refresh_token
@@ -50,7 +48,6 @@ ALTER TABLE refresh_token
 
 CREATE INDEX IF NOT EXISTS idx_refresh_token_family_id ON refresh_token(family_id);
 
--- 3) Emails : unicité insensible à la casse + normalisation des données existantes
 ALTER TABLE "user" DROP CONSTRAINT IF EXISTS "user_email_key";
 
 UPDATE "user" SET email = lower(email) WHERE email != lower(email);
