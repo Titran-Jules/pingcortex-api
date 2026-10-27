@@ -12,6 +12,7 @@ import javax.sql.DataSource;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -78,7 +79,7 @@ public class ConceptRepository {
             stmt.setInt(5, position);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    concept = conceptResponseRowMapper(rs);
+                    concept = conceptMapper(rs);
                 }
             }
         } catch (SQLException e) {
@@ -97,7 +98,7 @@ public class ConceptRepository {
         )  {
             stmt.setObject(1, conceptId);
             try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? Optional.of(conceptResponseRowMapper(rs)) : Optional.empty();
+                return rs.next() ? Optional.of(conceptMapper(rs)) : Optional.empty();
             }
         } catch (SQLException e) {
             throw new DataAccessException("Failed to find the concept", e);
@@ -106,9 +107,10 @@ public class ConceptRepository {
 
     public List<ConceptResponse> findAllByCourseId(UUID userId, UUID courseId) {
         String sql = """
-            SELECT c.id, c.name, c.description, c.position, c.coverage_status, c.suggested_coverage
+            SELECT c.id, c.name, c.description, c.position, c.coverage_status, c.suggested_coverage, m.mastery_level
             FROM concept c
             JOIN course co ON c.course_id = co.id
+            LEFT JOIN user_concept_mastery m ON m.concept_id = c.id AND m.user_id = co.user_id
             WHERE c.course_id = ? AND co.user_id = ?
             ORDER BY position
         """;
@@ -120,7 +122,7 @@ public class ConceptRepository {
             stmt.setObject(2, userId);
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    conceptResponses.add(conceptResponseRowMapper(rs));
+                    conceptResponses.add(conceptWithMasteryMapper(rs));
                 }
             }
         } catch (SQLException e) {
@@ -145,7 +147,7 @@ public class ConceptRepository {
             stmt.setObject(2, userId);
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    conceptResponses.add(conceptResponseRowMapper(rs));
+                    conceptResponses.add(conceptMapper(rs));
                 }
             }
         } catch (SQLException e) {
@@ -175,7 +177,9 @@ public class ConceptRepository {
               AND c.id = ?
               AND c.course_id = ?
               AND co.user_id = ?
-            RETURNING c.id, c.name, c.description, c.position, c.coverage_status, c.suggested_coverage
+            RETURNING c.id, c.name, c.description, c.position, c.coverage_status, c.suggested_coverage,
+                (SELECT m.mastery_level FROM user_concept_mastery m
+                 WHERE m.concept_id = c.id AND m.user_id = ?) AS mastery_level
         """;
         try (ManagedConnection connection = ManagedConnection.open(dataSource);
              PreparedStatement stmt = connection.get().prepareStatement(sql)
@@ -184,14 +188,27 @@ public class ConceptRepository {
             stmt.setObject(2, conceptId);
             stmt.setObject(3, courseId);
             stmt.setObject(4, userId);
+            stmt.setObject(5, userId);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(conceptResponseRowMapper(rs));
+                    return Optional.of(conceptWithMasteryMapper(rs));
                 }
                 return Optional.empty();
             }
         } catch (SQLException e) {
             throw new DataAccessException("Failed to update concept coverage status", e);
+        }
+    }
+
+    public void deleteAllByCourseId(UUID courseId) {
+        String sql = "DELETE FROM concept WHERE course_id = ?";
+        try (ManagedConnection connection = ManagedConnection.open(dataSource);
+             PreparedStatement stmt = connection.get().prepareStatement(sql)
+        ) {
+            stmt.setObject(1, courseId);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to delete all concepts of course", e);
         }
     }
 
@@ -284,7 +301,7 @@ public class ConceptRepository {
             stmt.setObject(2, userId);
             try (ResultSet rs = stmt.executeQuery()) {
                 while(rs.next()) {
-                    conceptResponses.add(conceptResponseRowMapper(rs));
+                    conceptResponses.add(conceptMapper(rs));
                 }
             }
         } catch (SQLException e) {
@@ -293,14 +310,27 @@ public class ConceptRepository {
         return conceptResponses;
     }
 
-    private ConceptResponse conceptResponseRowMapper(ResultSet rs) throws SQLException {
+    private ConceptResponse conceptMapper(ResultSet rs) throws SQLException {
         return new ConceptResponse(
                 rs.getObject("id", UUID.class),
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getInt("position"),
                 ConceptStatus.valueOf(rs.getString("coverage_status")),
-                rs.getBoolean("suggested_coverage")
+                rs.getBoolean("suggested_coverage"),
+                null
+        );
+    }
+
+    private ConceptResponse conceptWithMasteryMapper(ResultSet rs) throws SQLException {
+        return new ConceptResponse(
+                rs.getObject("id", UUID.class),
+                rs.getString("name"),
+                rs.getString("description"),
+                rs.getInt("position"),
+                ConceptStatus.valueOf(rs.getString("coverage_status")),
+                rs.getBoolean("suggested_coverage"),
+                rs.getObject("mastery_level", Integer.class)
         );
     }
 
@@ -308,7 +338,7 @@ public class ConceptRepository {
         return new ConceptMasteryResponse(
                 rs.getObject("concept_id", UUID.class),
                 rs.getInt("mastery_level"),
-                rs.getTimestamp("last_reviewed_at").toInstant()
+                rs.getObject("last_reviewed_at", OffsetDateTime.class).toInstant()
         );
     }
 }

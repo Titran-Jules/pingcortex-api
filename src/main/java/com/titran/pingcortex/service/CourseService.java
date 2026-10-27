@@ -4,6 +4,9 @@ import com.titran.pingcortex.dto.request.CourseRequest;
 import com.titran.pingcortex.dto.request.CourseUpdate;
 import com.titran.pingcortex.dto.request.CourseUpdateActive;
 import com.titran.pingcortex.dto.response.CourseResponse;
+import com.titran.pingcortex.exception.AnalysisNotRetryableException;
+import com.titran.pingcortex.exception.CourseNotFoundException;
+import com.titran.pingcortex.model.AnalysisStatus;
 import com.titran.pingcortex.repository.CourseRepository;
 import com.titran.pingcortex.util.TransactionUtils;
 import lombok.AllArgsConstructor;
@@ -33,6 +36,18 @@ public class CourseService {
         var createdCourse = courseRepository.createCourse(userId, courseRequest);
         TransactionUtils.afterCommit(() -> courseAnalyzeService.analyzeCourse(userId, createdCourse.id()));
         return createdCourse;
+    }
+
+    @Transactional
+    public CourseResponse retryAnalysis(UUID userId, UUID courseId) {
+        CourseResponse course = courseRepository.findById(userId, courseId)
+                .orElseThrow(CourseNotFoundException::new);
+        if (course.analysisStatus() != AnalysisStatus.FAILED) {
+            throw new AnalysisNotRetryableException();
+        }
+        courseRepository.updateAnalysisStatus(courseId, AnalysisStatus.PENDING);
+        TransactionUtils.afterCommit(() -> courseAnalyzeService.analyzeCourse(userId, courseId));
+        return courseRepository.findById(userId, courseId).orElse(course);
     }
 
     public Optional<CourseResponse> updateCourse(UUID userId, UUID courseId, CourseUpdate  courseUpdate) {

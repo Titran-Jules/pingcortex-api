@@ -27,6 +27,12 @@ public class ChatAiService {
         return chatAiRepository.createSession(userId, courseId);
     }
 
+    public List<ChatSessionResponse> findAllSessionsByCourseId(UUID userId, UUID courseId) {
+        courseRepository.findById(userId, courseId)
+                .orElseThrow(CourseNotFoundException::new);
+        return chatAiRepository.findAllSessionsByCourseId(userId, courseId);
+    }
+
     public List<ChatMessagesResponse> findAllMessagesBySessionId(UUID userId, UUID sessionId) {
         return chatAiRepository.findAllMessagesBySessionId(userId, sessionId);
     }

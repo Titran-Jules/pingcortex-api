@@ -280,6 +280,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CourseResponse"
+  /courses/{courseId}/analyze:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    post:
+      tags: [Courses]
+      summary: Re-run the AI analysis of a course after a FAILED attempt (stale concepts are wiped first)
+      responses:
+        '202':
+          description: Re-analysis scheduled, status reset to PENDING
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseResponse"
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        '409':
+          description: Course analysis is not in FAILED state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /courses/{courseId}/materials:
     parameters:
       - $ref: "#/components/parameters/CourseId"
@@ -460,6 +485,18 @@ paths:
   /courses/{courseId}/chat-sessions:
     parameters:
       - $ref: "#/components/parameters/CourseId"
+    get:
+      tags: [Chat AI]
+      summary: List the chat sessions of a course (restores the session after a reload)
+      responses:
+        '200':
+          description: Sessions ordered by most recent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatSessionResponse"
     post:
       tags: [Chat AI]
       summary: Create a new chat session with AI about a specific course.
@@ -514,31 +551,30 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ReviewDueResponse"
-  /reviews/{conceptId}/complete:
-    parameters:
-      - $ref: "#/components/parameters/ConceptId"
-    post:
-      tags: [Reviews]
-      summary: Mark a concept's review as done and reschedule the next one
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ReviewCompletion"
+      description: >
+        Reviews are advanced automatically by the backend: each quiz attempt or
+        Feynman submission updates mastery and reschedules the next occurrence
+        in the same transaction. There is deliberately no "complete review"
+        endpoint — do not call one.
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Progression aggregate per course (avoids course x concepts calls)
+      parameters:
+        - name: isActive
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         '200':
-          description: Review recorded, next occurrence scheduled
+          description: One progress blob per course, ordered by most recent
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReviewScheduleResponse"
-        '404':
-          description: No review scheduled for this concept
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                type: array
+                items:
+                  $ref: "#/components/schemas/CourseProgressResponse"
 components:
   securitySchemes:
     bearerAuth:
@@ -844,6 +880,13 @@ components:
         suggestedCoverage:
           type: boolean
           example: false
+        masteryLevel:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Mastery of the current user for this concept (null when never reviewed). Included so listing concepts avoids one call per concept.
+          example: 65
     MasteryResponse:
       type: object
       properties:
@@ -1045,30 +1088,44 @@ components:
         intervalDays:
           type: integer
           example: 3
-    ReviewCompletion:
+    CourseProgressResponse:
       type: object
-      description: Whether the student successfully recalled the concept, used to compute the next interval.
+      description: Dashboard aggregate for one course — replaces per-concept calls.
       properties:
-        success:
+        courseId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: Théorie
+        isActive:
           type: boolean
           example: true
-      required: [success]
-    ReviewScheduleResponse:
-      type: object
-      properties:
-        id:
+        analysisStatus:
           type: string
-          format: uuid
-          example: e1f2a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b
-        conceptId:
-          type: string
-          format: uuid
-          example: 8a1b2c3d-4e5f-6789-abcd-ef0123456789
-        nextReviewAt:
-          type: string
-          format: date-time
-          description: Pushed further out on success, reset closer on failure.
-          example: 2026-09-08T08:00:00
-        intervalDays:
+          enum: [PENDING, ANALYZING, READY, FAILED]
+          example: READY
+        totalConcepts:
           type: integer
-          example: 6
+          example: 14
+        coveredConcepts:
+          type: integer
+          example: 9
+        inProgressConcepts:
+          type: integer
+          description: Concepts marked ANTICIPATED_COVERED.
+          example: 2
+        masteredConcepts:
+          type: integer
+          description: Concepts with mastery >= 80.
+          example: 5
+        averageMastery:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 54
+        dueReviewCount:
+          type: integer
+          description: Concepts whose review is due today or overdue.
+          example: 3
+

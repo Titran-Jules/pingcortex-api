@@ -14,6 +14,7 @@ import javax.sql.DataSource;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -50,6 +51,35 @@ public class ChatAiRepository {
             throw new DataAccessException("Failed to insert a new chat session", e);
         }
         return response;
+    }
+
+    public List<ChatSessionResponse> findAllSessionsByCourseId(UUID userId, UUID courseId) {
+        String sql = """
+            SELECT s.id, s.course_id, s.created_at
+            FROM chat_session s
+            JOIN course c ON s.course_id = c.id
+            WHERE s.user_id = ? AND s.course_id = ?
+            ORDER BY s.created_at DESC
+        """;
+        List<ChatSessionResponse> sessions = new ArrayList<>();
+        try (ManagedConnection connection = ManagedConnection.open(dataSource);
+             PreparedStatement stmt = connection.get().prepareStatement(sql)
+        ) {
+            stmt.setObject(1, userId);
+            stmt.setObject(2, courseId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    sessions.add(new ChatSessionResponse(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("course_id", UUID.class),
+                            rs.getObject("created_at", OffsetDateTime.class).toInstant()
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to find all chat sessions of this course", e);
+        }
+        return sessions;
     }
 
     public ChatMessagesResponse insertNewMessage(UUID sessionId, Role role, String content) {

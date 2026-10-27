@@ -27,6 +27,12 @@ public class ChatAiController {
                 .body(chatAiService.createSession(userId, courseId));
     }
 
+    @GetMapping("/courses/{courseId}/chat-sessions")
+    public ResponseEntity<List<ChatSessionResponse>> findAllSessionsByCourseId(@PathVariable UUID courseId, HttpServletRequest request) {
+        UUID userId = CurrentUser.id(request);
+        return ResponseEntity.ok(chatAiService.findAllSessionsByCourseId(userId, courseId));
+    }
+
     @GetMapping("/chat-sessions/{chatSessionId}/messages")
     public ResponseEntity<List<ChatMessagesResponse>> findAllMessagesBySessionId(@PathVariable UUID chatSessionId, HttpServletRequest request) {
         UUID userId = CurrentUser.id(request);
