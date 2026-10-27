@@ -26,6 +26,12 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("EMAIL_ALREADY_EXISTS", e.getMessage()));
     }
 
+    @ExceptionHandler(AnalysisNotRetryableException.class)
+    public ResponseEntity<ErrorResponse> handleAnalysisNotRetryable(AnalysisNotRetryableException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("ANALYSIS_NOT_RETRYABLE", e.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().stream()

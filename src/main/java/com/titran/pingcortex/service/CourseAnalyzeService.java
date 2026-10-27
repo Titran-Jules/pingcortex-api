@@ -49,6 +49,7 @@ public class CourseAnalyzeService {
             List<String> materialContents = courseMaterialRepository.findAllByCourseId(courseId).stream()
                     .map(CourseMaterialResponse::content)
                     .toList();
+            conceptRepository.deleteAllByCourseId(courseId);
             courseRepository.updateAnalysisStatus(courseId, AnalysisStatus.ANALYZING);
 
             List<ConceptSuggestion> suggestions = aiClient.analyzeCourse(decryptedKey, course.title(), course.description(), materialContents);

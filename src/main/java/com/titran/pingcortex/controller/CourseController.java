@@ -58,6 +58,12 @@ public class CourseController {
                 .orElseThrow(CourseNotFoundException::new));
     }
 
+    @PostMapping("/courses/{courseId}/analyze")
+    public ResponseEntity<CourseResponse> retryCourseAnalysis(@PathVariable UUID courseId, HttpServletRequest request) {
+        UUID userId = CurrentUser.id(request);
+        return ResponseEntity.accepted().body(courseService.retryAnalysis(userId, courseId));
+    }
+
     @GetMapping("/courses/{courseId}/materials")
     public ResponseEntity<List<CourseMaterialResponse>> getAllCourseMaterials(@PathVariable UUID courseId, HttpServletRequest request) {
         UUID userId = CurrentUser.id(request);

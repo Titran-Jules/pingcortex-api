@@ -63,7 +63,7 @@ public class CourseRepository {
             sql = """
                 SELECT id, title, description, is_active, analysis_status, created_at
                 FROM course
-                WHERE user_id = ?    
+                WHERE user_id = ?
             """;
         }
         List<CourseResponse> courses = new ArrayList<>();
@@ -161,7 +161,7 @@ public class CourseRepository {
             PreparedStatement stmt = connection.get().prepareStatement(sql)
         ) {
             stmt.setString(1, status.name());
-            stmt.setObject(1, courseId);
+            stmt.setObject(2, courseId);
             int result = stmt.executeUpdate();
             if (result != 1) {
                 return false;
