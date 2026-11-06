@@ -35,6 +35,7 @@ public class EncryptionService {
             byte[] cipherText = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
             byte[] combined = new byte[iv.length + cipherText.length];
             System.arraycopy(iv, 0, combined, 0, iv.length);
+            System.arraycopy(cipherText, 0, combined, iv.length, cipherText.length);
 
             return Base64.getEncoder().encodeToString(combined);
         } catch (GeneralSecurityException e) {
@@ -50,7 +51,7 @@ public class EncryptionService {
             System.arraycopy(combined, 0, iv, 0, iv.length);
             System.arraycopy(combined, iv.length, cipherText, 0, cipherText.length);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
             byte[] plainText = cipher.doFinal(cipherText);
 
             return new String(plainText, StandardCharsets.UTF_8);
