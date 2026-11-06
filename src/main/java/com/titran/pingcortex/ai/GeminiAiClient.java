@@ -36,7 +36,7 @@ public class GeminiAiClient extends AbstractAiClient {
         try {
             List<GeminiContent> contents = messages.stream()
                     .map(turn -> {
-                        String role = turn.role().toLowerCase();
+                        String role = "assistant".equalsIgnoreCase(turn.role()) ? "model" : "user";
                         return new GeminiContent(role, List.of(new GeminiPart(turn.content())));
                     })
                     .toList();

@@ -80,7 +80,7 @@ public class QuizRepository {
     public QuizQuestionResponse createQuizQuestion(UUID conceptId, String questionText, Difficulty difficulty) {
         String sql = """
             INSERT INTO quiz_question (id, concept_id, question_text, difficulty)
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?::difficulty_list)
             RETURNING id, question_text, difficulty;
         """;
         try (ManagedConnection connection = ManagedConnection.open(dataSource);
@@ -160,7 +160,7 @@ public class QuizRepository {
                 END AS priority,
             (SELECT MAX(created_at) FROM quiz_attempt qa WHERE qa.question_id = qq.id AND qa.user_id = ?) AS last_attempt_at
             FROM quiz_question qq
-            WHERE qq.concept_id = ? AND qq.difficulty = ?
+            WHERE qq.concept_id = ? AND qq.difficulty = ?::difficulty_list
             ORDER BY priority ASC, last_attempt_at ASC NULLS FIRST
             LIMIT ?;
         """;

@@ -15,6 +15,7 @@ import com.titran.pingcortex.repository.CourseRepository;
 import com.titran.pingcortex.repository.UserRepository;
 import com.titran.pingcortex.security.EncryptionService;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import com.titran.pingcortex.ai.AiResults.ConceptSuggestion;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @AllArgsConstructor
 public class CourseAnalyzeService {
@@ -59,6 +61,7 @@ public class CourseAnalyzeService {
                 conceptRepository.create(courseId, suggestion.name(), suggestion.description(), position++);
             }
         } catch (Exception e) {
+            log.error("AI analysis failed for course {} (user {})", courseId, userId, e);
             courseRepository.updateAnalysisStatus(courseId, AnalysisStatus.FAILED);
         }
     }
