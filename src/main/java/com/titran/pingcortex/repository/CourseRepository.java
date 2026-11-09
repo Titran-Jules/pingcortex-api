@@ -154,7 +154,7 @@ public class CourseRepository {
     public boolean updateAnalysisStatus(UUID courseId, AnalysisStatus status) {
         String sql = """
             UPDATE course
-            SET analysis_status = ?
+            SET analysis_status = ?::analysis_status_list
             WHERE id = ?
         """;
         try (ManagedConnection connection = ManagedConnection.open(dataSource);

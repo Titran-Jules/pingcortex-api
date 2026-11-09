@@ -84,7 +84,7 @@ public class ChatAiRepository {
 
     public ChatMessagesResponse insertNewMessage(UUID sessionId, Role role, String content) {
         String sql = """
-            INSERT INTO chat_message (id, session_id, role, content) VALUES (?, ?, ?, ?)
+            INSERT INTO chat_message (id, session_id, role, content) VALUES (?, ?, ?, ?::chat_role_list)
             RETURNING id, role, content, created_at
         """;
         ChatMessagesResponse response = null;

@@ -74,13 +74,25 @@ public class OpenAiAiClient extends AbstractAiClient {
 
     private AiProviderException translateError(RestClientResponseException e) {
         int status = e.getStatusCode().value();
+        String detail = bodyExcerpt(e);
         if (status == 401) {
-            return new AiProviderException("Invalid or revoked OpenAI API key", e);
+            return new AiProviderException("Invalid or revoked OpenAI API key (HTTP 401) " + detail, e);
+        }
+        if (status == 404) {
+            return new AiProviderException("OpenAI model not found or unavailable (HTTP 404) " + detail, e);
         }
         if (status == 429) {
-            return new AiProviderException("OpenAI rate limit or quota exceeded, try again later", e);
+            return new AiProviderException("OpenAI rate limit exceeded or insufficient quota (HTTP 429) " + detail, e);
         }
-        return new AiProviderException("OpenAI API key error (HTTP " + status + ")", e);
+        return new AiProviderException("OpenAI API error (HTTP " + status + ") " + detail, e);
+    }
+
+    private String bodyExcerpt(RestClientResponseException e) {
+        String body = e.getResponseBodyAsString();
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        return "| " + (body.length() > 500 ? body.substring(0, 500) + "..." : body);
     }
 
     private record OpenAiMessage(String role, String content) {}
