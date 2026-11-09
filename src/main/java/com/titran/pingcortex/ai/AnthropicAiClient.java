@@ -38,13 +38,25 @@ public class AnthropicAiClient extends AbstractAiClient {
 
     private AiProviderException translateError(RestClientResponseException e) {
         int status = e.getStatusCode().value();
+        String detail = bodyExcerpt(e);
         if (status == 401) {
-            return new AiProviderException("Invalid or revoked Anthropic API key", e);
+            return new AiProviderException("Invalid or revoked Anthropic API key (HTTP 401) " + detail, e);
+        }
+        if (status == 404) {
+            return new AiProviderException("Anthropic model not found or unavailable (HTTP 404) " + detail, e);
         }
         if (status == 429) {
-            return new AiProviderException("Anthropic rate limit exceeded, try again later", e);
+            return new AiProviderException("Anthropic rate limit exceeded (HTTP 429) " + detail, e);
         }
-        return new AiProviderException("Anthropic API key error (HTTP " + status + ")", e);
+        return new AiProviderException("Anthropic API error (HTTP " + status + ") " + detail, e);
+    }
+
+    private String bodyExcerpt(RestClientResponseException e) {
+        String body = e.getResponseBodyAsString();
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        return "| " + (body.length() > 500 ? body.substring(0, 500) + "..." : body);
     }
 
     @Override

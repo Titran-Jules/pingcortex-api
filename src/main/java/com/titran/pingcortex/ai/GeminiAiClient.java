@@ -69,13 +69,25 @@ public class GeminiAiClient extends AbstractAiClient {
 
     private AiProviderException translateError(RestClientResponseException e) {
         int status = e.getStatusCode().value();
+        String detail = bodyExcerpt(e);
         if (status == 400 || status == 401) {
-            return new AiProviderException("Invalid or revoked Gemini API key", e);
+            return new AiProviderException("Invalid or revoked Gemini API key (HTTP " + status + ") " + detail, e);
+        }
+        if (status == 404) {
+            return new AiProviderException("Gemini model not found or unavailable (HTTP 404) " + detail, e);
         }
         if (status == 429) {
-            return new AiProviderException("Gemini rate limit exceeded, try again later", e);
+            return new AiProviderException("Gemini rate limit exceeded (HTTP 429) " + detail, e);
         }
-        return new AiProviderException("Gemini API key error (HTTP " + status + ")", e);
+        return new AiProviderException("Gemini API error (HTTP " + status + ") " + detail, e);
+    }
+
+    private String bodyExcerpt(RestClientResponseException e) {
+        String body = e.getResponseBodyAsString();
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        return "| " + (body.length() > 500 ? body.substring(0, 500) + "..." : body);
     }
 
     private record GeminiPart(String text) {}
