@@ -60,6 +60,7 @@ public class CourseAnalyzeService {
             for (ConceptSuggestion suggestion : suggestions) {
                 conceptRepository.create(courseId, suggestion.name(), suggestion.description(), position++);
             }
+            courseRepository.updateAnalysisStatus(courseId, AnalysisStatus.READY);
         } catch (Exception e) {
             log.error("AI analysis failed for course {} (user {})", courseId, userId, e);
             courseRepository.updateAnalysisStatus(courseId, AnalysisStatus.FAILED);
