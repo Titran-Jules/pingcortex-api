@@ -1,5 +1,6 @@
 package com.titran.pingcortex.ai;
 
+import com.titran.pingcortex.ai.AiClient.JsonMode;
 import com.titran.pingcortex.ai.AiResults.*;
 import com.titran.pingcortex.exception.AiProviderException;
 import com.titran.pingcortex.model.Difficulty;
@@ -10,15 +11,18 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public abstract class AbstractAiClient implements AiClient {
+    private static final int QUIZ_OPTION_COUNT = 4;
+
     protected final ObjectMapper objectMapper;
 
     protected AbstractAiClient(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
 
-    protected abstract String callProviderApi(String apiKey, String systemPrompt, List<ChatTurn> messages, boolean jsonOutput);
+    protected abstract String callProviderApi(String apiKey, String systemPrompt, List<ChatTurn> messages, JsonMode jsonMode);
 
     @Override
     public List<ConceptSuggestion> analyzeCourse(String apiKey, String courseTitle, String courseDescription, List<String> materialContent) {
@@ -39,8 +43,22 @@ public abstract class AbstractAiClient implements AiClient {
                 userPrompt.append("---\n").append(content).append("\n");
             }
         }
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), true);
-        return parseJson(rawResponse, new TypeReference<List<ConceptSuggestion>>() {});
+        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), JsonMode.ARRAY);
+        List<ConceptSuggestion> parsed = parseJson(rawResponse, new TypeReference<List<ConceptSuggestion>>() {});
+        if (parsed == null) {
+            throw new AiProviderException("AI returned no concepts", null);
+        }
+        List<ConceptSuggestion> valid = new ArrayList<>();
+        for (ConceptSuggestion suggestion : parsed) {
+            if (suggestion == null || suggestion.name() == null || suggestion.name().isBlank()) {
+                continue;
+            }
+            valid.add(new ConceptSuggestion(suggestion.name().strip(), suggestion.description()));
+        }
+        if (valid.isEmpty()) {
+            throw new AiProviderException("AI returned no valid concepts", null);
+        }
+        return valid;
     }
 
     @Override
@@ -61,8 +79,37 @@ public abstract class AbstractAiClient implements AiClient {
         userPrompt.append("\n");
         userPrompt.append("MATERIAL CONTENT : ").append("\n");
         userPrompt.append(materialContent).append("\n");
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), true);
-        return parseJson(rawResponse, new TypeReference<List<ConceptCoverageSuggestion>>() {});
+        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), JsonMode.ARRAY);
+        List<Map<String, Object>> entries = parseJson(rawResponse, new TypeReference<List<Map<String, Object>>>() {});
+        if (entries == null) {
+            throw new AiProviderException("AI returned no coverage suggestions", null);
+        }
+        List<ConceptCoverageSuggestion> valid = new ArrayList<>();
+        for (Map<String, Object> entry : entries) {
+            ConceptCoverageSuggestion suggestion = toCoverageSuggestion(entry);
+            if (suggestion != null) {
+                valid.add(suggestion);
+            }
+        }
+        if (valid.isEmpty()) {
+            throw new AiProviderException("AI returned no valid coverage suggestions", null);
+        }
+        return valid;
+    }
+
+    private ConceptCoverageSuggestion toCoverageSuggestion(Map<String, Object> entry) {
+        if (entry == null || entry.get("conceptId") == null) {
+            return null;
+        }
+        Object confidence = entry.get("confidence");
+        try {
+            return new ConceptCoverageSuggestion(
+                    UUID.fromString(String.valueOf(entry.get("conceptId")).strip()),
+                    confidence == null ? null : confidence.toString()
+            );
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @Override
@@ -75,19 +122,13 @@ public abstract class AbstractAiClient implements AiClient {
             {"questionText": "...", "options": [{"text": "...", "correct": true|false}, ...]}
         """.formatted(difficulty, conceptName, conceptDescription);
 
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere la question suivante.")), true);
-        Map<String, Object> parsed = parseJson(rawResponse, new TypeReference<>() {});
-
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rawOptions = (List<Map<String, Object>>) parsed.get("options");
-        List<QuizOptionSuggestion> options = new ArrayList<>();
-        for (Map<String, Object> option : rawOptions) {
-            options.add(new QuizOptionSuggestion(
-                    (String) option.get("text"),
-                    (Boolean) option.get("correct")
-            ));
+        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere la question suivante.")), JsonMode.OBJECT);
+        QuizQuestionDraft draft = parseJson(rawResponse, new TypeReference<QuizQuestionDraft>() {});
+        List<QuizQuestionSuggestion> valid = validQuizQuestions(draft == null ? List.of() : List.of(draft), difficulty);
+        if (valid.isEmpty()) {
+            throw new AiProviderException("AI returned an invalid quiz question", null);
         }
-        return new QuizQuestionSuggestion((String) parsed.get("questionText"), difficulty, options);
+        return valid.get(0);
     }
 
     private record QuizQuestionDraft(String questionText, List<QuizOptionSuggestion> options) {}
@@ -106,11 +147,39 @@ public abstract class AbstractAiClient implements AiClient {
             [{"questionText": "...", "options": [{"text": "...", "correct": true|false}, ...]}]
         """.formatted(count, difficulty, conceptName, conceptDescription);
 
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere une sequence de quiz pour maitriser ce concept")), true);
+        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere une sequence de quiz pour maitriser ce concept")), JsonMode.ARRAY);
         List<QuizQuestionDraft> drafts = parseJson(rawResponse, new TypeReference<List<QuizQuestionDraft>>() {});
-        return drafts.stream()
-                .map(draft -> new QuizQuestionSuggestion(draft.questionText(), difficulty, draft.options()))
-                .toList();
+        List<QuizQuestionSuggestion> valid = validQuizQuestions(drafts, difficulty);
+        if (valid.isEmpty()) {
+            throw new AiProviderException("AI returned no valid quiz questions", null);
+        }
+        return valid;
+    }
+
+    private List<QuizQuestionSuggestion> validQuizQuestions(List<QuizQuestionDraft> drafts, Difficulty difficulty) {
+        List<QuizQuestionSuggestion> valid = new ArrayList<>();
+        if (drafts == null) {
+            return valid;
+        }
+        for (QuizQuestionDraft draft : drafts) {
+            if (draft == null || draft.questionText() == null || draft.questionText().isBlank()) {
+                continue;
+            }
+            if (draft.options() == null || draft.options().size() != QUIZ_OPTION_COUNT) {
+                continue;
+            }
+            boolean allOptionsValid = draft.options().stream()
+                    .allMatch(option -> option != null && option.text() != null && !option.text().isBlank());
+            if (!allOptionsValid) {
+                continue;
+            }
+            long correctCount = draft.options().stream().filter(QuizOptionSuggestion::correct).count();
+            if (correctCount != 1) {
+                continue;
+            }
+            valid.add(new QuizQuestionSuggestion(draft.questionText().strip(), difficulty, draft.options()));
+        }
+        return valid;
     }
 
     @Override
@@ -125,8 +194,22 @@ public abstract class AbstractAiClient implements AiClient {
             "overallFeedback": "...", "misconceptions": ["..."], "score": 0-100}
         """.formatted(conceptName, conceptDescription);
 
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", explanationText)), true);
-        return parseJson(rawResponse, new TypeReference<FeynmanEvaluationResult>() {});
+        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", explanationText)), JsonMode.OBJECT);
+        FeynmanEvaluationResult result = parseJson(rawResponse, new TypeReference<FeynmanEvaluationResult>() {});
+        if (result == null) {
+            throw new AiProviderException("AI returned no Feynman evaluation", null);
+        }
+        List<CriterionResult> criteria = result.criteria() == null ? List.of() : result.criteria();
+        List<String> misconceptions = result.misconceptions() == null ? List.of() : result.misconceptions();
+        String feedback = result.overallFeedback() == null ? "" : result.overallFeedback();
+        return new FeynmanEvaluationResult(criteria, feedback, misconceptions, clampScore(result.score()));
+    }
+
+    private double clampScore(double score) {
+        if (Double.isNaN(score)) {
+            return 0;
+        }
+        return Math.max(0, Math.min(100, score));
     }
 
     @Override
@@ -139,18 +222,75 @@ public abstract class AbstractAiClient implements AiClient {
 
         List<ChatTurn> messages = new ArrayList<>(history);
         messages.add(new ChatTurn("user", newMessage));
-        return callProviderApi(apiKey, systemPrompt, messages, false);
+        return callProviderApi(apiKey, systemPrompt, messages, JsonMode.TEXT);
     }
 
     protected <T> T parseJson(String rawText, TypeReference<T> typeRef) {
+        String payload = extractJsonPayload(rawText);
         try {
-            String cleaned = rawText.strip();
-            if (cleaned.startsWith("```")) {
-                cleaned = cleaned.replaceAll("^```(json)?\\s*", "").replaceAll("```\\s*$", "");
-            }
-            return objectMapper.readValue(cleaned, typeRef);
+            return objectMapper.readValue(payload, typeRef);
         } catch (JacksonException e) {
-            throw new AiProviderException("Failed to parse AI response as JSON", e);
+            throw new AiProviderException("Failed to parse AI response as JSON: " + excerpt(payload), e);
         }
+    }
+
+    private String excerpt(String text) {
+        return text.length() > 200 ? text.substring(0, 200) + "..." : text;
+    }
+
+    private String extractJsonPayload(String rawText) {
+        if (rawText == null || rawText.isBlank()) {
+            throw new AiProviderException("AI returned an empty response", null);
+        }
+        String text = rawText.strip();
+        if (text.startsWith("```")) {
+            text = text.replaceFirst("^```(?:json)?\\s*", "");
+            int fenceEnd = text.lastIndexOf("```");
+            if (fenceEnd >= 0) {
+                text = text.substring(0, fenceEnd);
+            }
+            text = text.strip();
+        }
+        int start = -1;
+        char open = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '[' || c == '{') {
+                start = i;
+                open = c;
+                break;
+            }
+        }
+        if (start < 0) {
+            throw new AiProviderException("AI response contains no JSON structure", null);
+        }
+        char close = open == '[' ? ']' : '}';
+        boolean inString = false;
+        boolean escaped = false;
+        int depth = 0;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+            } else if (c == open) {
+                depth++;
+            } else if (c == close) {
+                depth--;
+                if (depth == 0) {
+                    return text.substring(start, i + 1);
+                }
+            }
+        }
+        throw new AiProviderException("AI response contains unterminated JSON", null);
     }
 }

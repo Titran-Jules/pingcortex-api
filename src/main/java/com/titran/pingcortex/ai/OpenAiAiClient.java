@@ -1,12 +1,14 @@
 package com.titran.pingcortex.ai;
 
+import com.titran.pingcortex.ai.AiClient.JsonMode;
+import com.titran.pingcortex.ai.AiResults.*;
 import com.titran.pingcortex.exception.AiProviderException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.ObjectMapper;
-import com.titran.pingcortex.ai.AiResults.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,23 +20,28 @@ public class OpenAiAiClient extends AbstractAiClient {
     private final RestClient restClient;
     private final String model;
     private final int maxTokens;
+    private final double temperature;
 
     public OpenAiAiClient(
             @Value("${ai.openai.base-url}") String baseUrl,
             @Value("${ai.openai.model}") String model,
             @Value("${ai.openai.max-tokens}") int maxTokens,
+            @Value("${ai.openai.temperature:0.2}") double temperature,
+            ClientHttpRequestFactory aiClientRequestFactory,
             ObjectMapper objectMapper
     ) {
         super(objectMapper);
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(aiClientRequestFactory)
                 .build();
         this.model = model;
         this.maxTokens = maxTokens;
+        this.temperature = temperature;
     }
 
     @Override
-    protected String callProviderApi(String apiKey, String systemPrompt, List<ChatTurn> messages, boolean jsonOutput) {
+    protected String callProviderApi(String apiKey, String systemPrompt, List<ChatTurn> messages, JsonMode jsonMode) {
         try {
             List<Map<String, String>> openAiMessages = new ArrayList<>();
             openAiMessages.add(Map.of("role", "system", "content", systemPrompt));
@@ -49,7 +56,8 @@ public class OpenAiAiClient extends AbstractAiClient {
             requestBody.put("model", model);
             requestBody.put("max_tokens", maxTokens);
             requestBody.put("messages", openAiMessages);
-            if (jsonOutput) {
+            if (jsonMode != JsonMode.TEXT) {
+                requestBody.put("temperature", temperature);
                 requestBody.put("response_format", Map.of("type", "json_object"));
             }
             OpenAiResponse response = restClient.post()
@@ -63,6 +71,12 @@ public class OpenAiAiClient extends AbstractAiClient {
                 throw new AiProviderException("OpenAI returned an empty response", null);
             }
             OpenAiChoice choice = response.choices().get(0);
+            if ("length".equals(choice.finishReason()) && jsonMode != JsonMode.TEXT) {
+                throw new AiProviderException("OpenAI response truncated (finish_reason: length), increase ai.openai.max-tokens", null);
+            }
+            if ("content_filter".equals(choice.finishReason()) && jsonMode != JsonMode.TEXT) {
+                throw new AiProviderException("OpenAI blocked the response (finish_reason: content_filter)", null);
+            }
             if (choice.message() == null || choice.message().content() == null) {
                 throw new AiProviderException("OpenAI response message content is null", null);
             }
@@ -96,6 +110,6 @@ public class OpenAiAiClient extends AbstractAiClient {
     }
 
     private record OpenAiMessage(String role, String content) {}
-    private record OpenAiChoice(OpenAiMessage message) {}
+    private record OpenAiChoice(OpenAiMessage message, String finishReason) {}
     private record OpenAiResponse(List<OpenAiChoice> choices) {}
 }
