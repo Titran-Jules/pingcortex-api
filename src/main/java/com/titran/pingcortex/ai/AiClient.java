@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.UUID;
 
 public interface AiClient {
+    enum JsonMode { TEXT, OBJECT, ARRAY }
+
     List<ConceptSuggestion> analyzeCourse(
             String apiKey,
             String courseTitle,
