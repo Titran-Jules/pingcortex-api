@@ -34,6 +34,7 @@ public class CourseService {
     @Transactional
     public CourseResponse createCourse(UUID userId, CourseRequest courseRequest) {
         var createdCourse = courseRepository.createCourse(userId, courseRequest);
+        courseRepository.updateAnalysisStatus(createdCourse.id(), AnalysisStatus.ANALYZING);
         TransactionUtils.afterCommit(() -> courseAnalyzeService.analyzeCourse(userId, createdCourse.id()));
         return createdCourse;
     }
@@ -45,7 +46,7 @@ public class CourseService {
         if (course.analysisStatus() != AnalysisStatus.FAILED) {
             throw new AnalysisNotRetryableException();
         }
-        courseRepository.updateAnalysisStatus(courseId, AnalysisStatus.PENDING);
+        courseRepository.updateAnalysisStatus(course.id(), AnalysisStatus.ANALYZING);
         TransactionUtils.afterCommit(() -> courseAnalyzeService.analyzeCourse(userId, courseId));
         return courseRepository.findById(userId, courseId).orElse(course);
     }

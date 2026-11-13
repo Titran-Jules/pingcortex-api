@@ -96,7 +96,10 @@ public class OpenAiAiClient extends AbstractAiClient {
             return new AiProviderException("OpenAI model not found or unavailable (HTTP 404) " + detail, e);
         }
         if (status == 429) {
-            return new AiProviderException("OpenAI rate limit exceeded or insufficient quota (HTTP 429) " + detail, e);
+            return new AiProviderException("OpenAI rate limit exceeded or insufficient quota (HTTP 429) " + detail, e, true, retryAfterMillis(e));
+        }
+        if (status == 500 || status == 502 || status == 503 || status == 504) {
+            return new AiProviderException("OpenAI API temporarily unavailable (HTTP " + status + ") " + detail, e, true, retryAfterMillis(e));
         }
         return new AiProviderException("OpenAI API error (HTTP " + status + ") " + detail, e);
     }

@@ -4,6 +4,8 @@ import com.titran.pingcortex.ai.AiClient.JsonMode;
 import com.titran.pingcortex.ai.AiResults.*;
 import com.titran.pingcortex.exception.AiProviderException;
 import com.titran.pingcortex.model.Difficulty;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -13,7 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 public abstract class AbstractAiClient implements AiClient {
+    private static final int MAX_RETRIES = 3;
+    private static final long BASE_BACKOFF_MILLIS = 2000;
     private static final int QUIZ_OPTION_COUNT = 4;
 
     protected final ObjectMapper objectMapper;
@@ -23,6 +28,53 @@ public abstract class AbstractAiClient implements AiClient {
     }
 
     protected abstract String callProviderApi(String apiKey, String systemPrompt, List<ChatTurn> messages, JsonMode jsonMode);
+
+    protected String callProviderWithRetry(String apiKey, String systemPrompt, List<ChatTurn> messages, JsonMode jsonMode) {
+        AiProviderException lastError = null;
+        long backoffMillis = BASE_BACKOFF_MILLIS;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            if (lastError != null) {
+                long waitMillis = Math.max(backoffMillis, lastError.retryAfterMillis());
+                log.warn("AI provider call failed (retry {}/{}), waiting {} ms: {}",
+                        attempt, MAX_RETRIES, waitMillis, lastError.getMessage());
+                sleep(waitMillis);
+                backoffMillis *= 3;
+            }
+            try {
+                return callProviderApi(apiKey, systemPrompt, messages, jsonMode);
+            } catch (AiProviderException e) {
+                if (!e.isRetryable()) {
+                    throw e;
+                }
+                lastError = e;
+            }
+        }
+        throw lastError;
+    }
+
+    private void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AiProviderException("AI call interrupted during retry backoff", e);
+        }
+    }
+
+    protected static long retryAfterMillis(RestClientResponseException e) {
+        if (e.getResponseHeaders() == null) {
+            return 0;
+        }
+        String retryAfter = e.getResponseHeaders().getFirst("Retry-After");
+        if (retryAfter == null || retryAfter.isBlank()) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(retryAfter.strip()) * 1000;
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
 
     @Override
     public List<ConceptSuggestion> analyzeCourse(String apiKey, String courseTitle, String courseDescription, List<String> materialContent) {
@@ -43,7 +95,7 @@ public abstract class AbstractAiClient implements AiClient {
                 userPrompt.append("---\n").append(content).append("\n");
             }
         }
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), JsonMode.ARRAY);
+        String rawResponse = callProviderWithRetry(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), JsonMode.ARRAY);
         List<ConceptSuggestion> parsed = parseJson(rawResponse, new TypeReference<List<ConceptSuggestion>>() {});
         if (parsed == null) {
             throw new AiProviderException("AI returned no concepts", null);
@@ -79,7 +131,7 @@ public abstract class AbstractAiClient implements AiClient {
         userPrompt.append("\n");
         userPrompt.append("MATERIAL CONTENT : ").append("\n");
         userPrompt.append(materialContent).append("\n");
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), JsonMode.ARRAY);
+        String rawResponse = callProviderWithRetry(apiKey, systemPrompt, List.of(new ChatTurn("user", userPrompt.toString())), JsonMode.ARRAY);
         List<Map<String, Object>> entries = parseJson(rawResponse, new TypeReference<List<Map<String, Object>>>() {});
         if (entries == null) {
             throw new AiProviderException("AI returned no coverage suggestions", null);
@@ -122,7 +174,7 @@ public abstract class AbstractAiClient implements AiClient {
             {"questionText": "...", "options": [{"text": "...", "correct": true|false}, ...]}
         """.formatted(difficulty, conceptName, conceptDescription);
 
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere la question suivante.")), JsonMode.OBJECT);
+        String rawResponse = callProviderWithRetry(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere la question suivante.")), JsonMode.OBJECT);
         QuizQuestionDraft draft = parseJson(rawResponse, new TypeReference<QuizQuestionDraft>() {});
         List<QuizQuestionSuggestion> valid = validQuizQuestions(draft == null ? List.of() : List.of(draft), difficulty);
         if (valid.isEmpty()) {
@@ -147,7 +199,7 @@ public abstract class AbstractAiClient implements AiClient {
             [{"questionText": "...", "options": [{"text": "...", "correct": true|false}, ...]}]
         """.formatted(count, difficulty, conceptName, conceptDescription);
 
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere une sequence de quiz pour maitriser ce concept")), JsonMode.ARRAY);
+        String rawResponse = callProviderWithRetry(apiKey, systemPrompt, List.of(new ChatTurn("user", "Genere une sequence de quiz pour maitriser ce concept")), JsonMode.ARRAY);
         List<QuizQuestionDraft> drafts = parseJson(rawResponse, new TypeReference<List<QuizQuestionDraft>>() {});
         List<QuizQuestionSuggestion> valid = validQuizQuestions(drafts, difficulty);
         if (valid.isEmpty()) {
@@ -194,7 +246,7 @@ public abstract class AbstractAiClient implements AiClient {
             "overallFeedback": "...", "misconceptions": ["..."], "score": 0-100}
         """.formatted(conceptName, conceptDescription);
 
-        String rawResponse = callProviderApi(apiKey, systemPrompt, List.of(new ChatTurn("user", explanationText)), JsonMode.OBJECT);
+        String rawResponse = callProviderWithRetry(apiKey, systemPrompt, List.of(new ChatTurn("user", explanationText)), JsonMode.OBJECT);
         FeynmanEvaluationResult result = parseJson(rawResponse, new TypeReference<FeynmanEvaluationResult>() {});
         if (result == null) {
             throw new AiProviderException("AI returned no Feynman evaluation", null);
@@ -222,7 +274,7 @@ public abstract class AbstractAiClient implements AiClient {
 
         List<ChatTurn> messages = new ArrayList<>(history);
         messages.add(new ChatTurn("user", newMessage));
-        return callProviderApi(apiKey, systemPrompt, messages, JsonMode.TEXT);
+        return callProviderWithRetry(apiKey, systemPrompt, messages, JsonMode.TEXT);
     }
 
     protected <T> T parseJson(String rawText, TypeReference<T> typeRef) {

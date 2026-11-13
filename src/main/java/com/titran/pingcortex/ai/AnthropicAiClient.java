@@ -52,7 +52,13 @@ public class AnthropicAiClient extends AbstractAiClient {
             return new AiProviderException("Anthropic model not found or unavailable (HTTP 404) " + detail, e);
         }
         if (status == 429) {
-            return new AiProviderException("Anthropic rate limit exceeded (HTTP 429) " + detail, e);
+            return new AiProviderException("Anthropic rate limit exceeded (HTTP 429) " + detail, e, true, retryAfterMillis(e));
+        }
+        if (status == 529) {
+            return new AiProviderException("Anthropic overloaded (HTTP 529) " + detail, e, true, retryAfterMillis(e));
+        }
+        if (status == 500 || status == 502 || status == 503 || status == 504) {
+            return new AiProviderException("Anthropic API temporarily unavailable (HTTP " + status + ") " + detail, e, true, retryAfterMillis(e));
         }
         return new AiProviderException("Anthropic API error (HTTP " + status + ") " + detail, e);
     }
